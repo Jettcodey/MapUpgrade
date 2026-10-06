@@ -10,14 +10,22 @@ The mod is highly configurable, allowing you to tailor the experience and enjoy 
 
 Please note that this mod requires **ALL PLAYERS** to have it installed.
 
-> Mod updated by **Jettcodey** per request by @jamy5387, originally developed by **Ardot66**.\
-> Original mod page:
-> https://thunderstore.io/c/repo/p/Ardot66/Map_Upgrade/
-> 
-> The original mods code and assets are MIT licensed and can be found here:\
-> Code: https://github.com/Ardot66/REPO.MapUpgrade\
-> Assets: https://github.com/Ardot66/REPO.MapUpgrade.Unity
-> 
-> This fork remains MIT-licensed and includes reworks and additions.\
-> Fork Code: https://github.com/Jettcodey/MapUpgrade\
-> Fork Assets: **Havent modified them other than re-applying the new Scripts**.
+### Report Bugs/Request features:
+Message me in the [Mods Thread](https://discord.com/channels/1344557689979670578/1452103326735798333) in the [REPO Modding Discord](https://discord.gg/vPJtKhYAFe).
+
+### Credits
+- [Ardot66](https://github.com/Ardot66) for the initial work on the mod.
+- Mod updated by per request by `@jamy5387` in the [REPO Modding Discord](https://discord.gg/vPJtKhYAFe).
+
+<details>
+<summary>Source Code/More Info</summary>
+
+Original mod page: https://thunderstore.io/c/repo/p/Ardot66/Map_Upgrade
+ 
+The original mods code and assets are MIT licensed and can be found here:\
+Code: https://github.com/Ardot66/REPO.MapUpgrade\
+Assets: https://github.com/Ardot66/REPO.MapUpgrade.Unity
+ 
+This fork remains MIT-licensed and includes reworks and additions.\
+Fork Code: https://github.com/Jettcodey/MapUpgrade\
+Fork Assets: **Havent modified them other than re-applying the new Scripts**.
