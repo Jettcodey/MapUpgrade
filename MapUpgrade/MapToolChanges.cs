@@ -136,6 +136,12 @@ public class MapToolChanges : MonoBehaviour
         if (!MapTool.Active || MapCamera == null)
             return;
 
+        if (SemiFunc.RunIsShop() || SemiFunc.RunIsLobby() || SemiFunc.RunIsLobbyMenu())
+        {
+            SetZoom(DefaultSize.Value);
+            return;
+        }
+
         float scroll = Input.GetAxisRaw("Mouse ScrollWheel");
         if (Mathf.Abs(scroll) > 0.0001f)
         {
