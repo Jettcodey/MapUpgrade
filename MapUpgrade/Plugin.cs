@@ -1,20 +1,14 @@
 ﻿// Originally developed by Ardot66
 // Modified and maintained by Jettcodey
 // Licensed under the MIT License
-
+using System.IO;
 using BepInEx;
 using BepInEx.Configuration;
 using BepInEx.Logging;
 using HarmonyLib;
 using REPOLib;
 using REPOLib.Modules;
-using System;
-using System.Collections.Generic;
-using System.IO;
-using System.Reflection;
-using UnityEditor;
 using UnityEngine;
-using UnityEngine.SceneManagement;
 
 namespace Ardot.Jettcodey.REPO.MapUpgrade;
 
@@ -22,180 +16,203 @@ namespace Ardot.Jettcodey.REPO.MapUpgrade;
 [BepInDependency("REPOLib", BepInDependency.DependencyFlags.HardDependency)]
 public class Plugin : BaseUnityPlugin
 {
-	public new static ConfigFile Config;
-	public static Harmony Harmony;
-	internal static new ManualLogSource Logger;
+    public static new ConfigFile Config;
+    public static Harmony Harmony;
+    internal static new ManualLogSource Logger;
 
-	// Configuration entries
-	public static ConfigEntry<bool> MapRequiresUpgrade;
-	public static ConfigEntry<float> MinCost;
-	public static ConfigEntry<float> MaxCost;
-	public static ConfigEntry<float> MapSizeIncrease;
+    public static ConfigEntry<bool> MapRequiresUpgrade;
+    public static ConfigEntry<float> MinCost;
+    public static ConfigEntry<float> MaxCost;
+    public static ConfigEntry<float> MapSizeIncrease;
 
-	public static string getPath()
-	{
-		return Path.Combine(Path.GetDirectoryName(Assembly.GetExecutingAssembly().Location), "mapupgrade.file");
-	}
+    private void Awake()
+    {
+        Logger = base.Logger;
+        Config = base.Config;
+        Harmony = new(MyPluginInfo.PLUGIN_GUID);
 
-	private void Awake()
-	{
-		Logger = base.Logger;
-		Config = base.Config;
-		Harmony = new(MyPluginInfo.PLUGIN_GUID);
+        InitConfig();
+        Harmony.PatchAll();
+        MapToolChanges.Init();
 
-		InitConfig();
+        Logger.LogInfo(
+            $"Plugin {MyPluginInfo.PLUGIN_NAME} v{MyPluginInfo.PLUGIN_VERSION} loaded successfully."
+        );
+        Logger.LogInfo($"Mod originally developed by Ardot66, updated by Jettcodey!");
 
-		MapToolChanges.Init();
+        string bundlePath = Path.Combine(Path.GetDirectoryName(Info.Location), "mapupgrade.file");
 
-		Logger.LogInfo($"Plugin {MyPluginInfo.PLUGIN_NAME} v{MyPluginInfo.PLUGIN_VERSION} loaded successfully.");
-		Logger.LogInfo($"Mod originally developed by Ardot66, updated by Jettcodey!");
+        BundleLoader.LoadBundle(
+            bundlePath,
+            delegate(AssetBundle assetBundle)
+            {
+                string[] upgrades = new[] { "Map Upgrade" };
 
-		BundleLoader.LoadBundle(getPath(), delegate (AssetBundle assetBundle)
-		{
-			string[] upgrades = new[] { "Map Upgrade" };
+                foreach (var upgradeName in upgrades)
+                {
+                    try
+                    {
+                        Item item = assetBundle.LoadAsset<Item>(upgradeName);
+                        if (item == null)
+                        {
+                            Logger.LogError(
+                                $"Failed loading Item asset '{upgradeName}' from bundle."
+                            );
+                            continue;
+                        }
 
-			foreach (var upgradeName in upgrades)
-			{
-				try
-				{
-					Item item = assetBundle.LoadAsset<Item>(upgradeName);
-					if (item == null)
-					{
-						Logger.LogError($"Failed loading Item asset '{upgradeName}' from bundle.");
-						continue;
-					}
+                        GameObject prefab = assetBundle.LoadAsset<GameObject>(upgradeName);
+                        if (prefab == null)
+                        {
+                            Logger.LogError(
+                                $"Failed loading prefab for upgrade '{upgradeName}'. Make sure the prefab is included in the bundle."
+                            );
+                            continue;
+                        }
 
-					GameObject prefab = assetBundle.LoadAsset<GameObject>(upgradeName);
+                        string assetName = $"{upgradeName}";
+                        prefab.name = assetName;
+                        item.name = assetName;
+                        item.itemName = $"{upgradeName}";
 
-					if (prefab == null)
-					{
-						Logger.LogError($"Failed loading prefab for upgrade '{upgradeName}'. Make sure the prefab is included in the bundle.");
-						continue;
-					}
+                        Value v = ScriptableObject.CreateInstance<Value>();
+                        v.valueMin = MinCost.Value / 4f;
+                        v.valueMax = MaxCost.Value / 4f;
+                        item.value = v;
 
-					string assetName = $"{upgradeName}";
-					prefab.name = assetName;
-					item.name = assetName;
-					item.itemName = $"{upgradeName}";
+                        ItemAttributes itemAttributes =
+                            prefab.GetComponent<ItemAttributes>()
+                            ?? prefab.AddComponent<ItemAttributes>();
+                        itemAttributes.item = item;
 
-					Value v = ScriptableObject.CreateInstance<Value>();
-					v.valueMin = MinCost.Value / 4f;
-					v.valueMax = MaxCost.Value / 4f;
-					item.value = v;
+                        Upgrader upgrader =
+                            prefab.GetComponent<Upgrader>() ?? prefab.AddComponent<Upgrader>();
 
-					ItemAttributes itemAttributes = prefab.GetComponent<ItemAttributes>() ?? prefab.AddComponent<ItemAttributes>();
-					itemAttributes.item = item;
+                        var prefabRef = Items.RegisterItem(itemAttributes);
+                        if (prefabRef == null)
+                        {
+                            Logger.LogWarning(
+                                $"Items.RegisterItem returned null for '{upgradeName}'."
+                            );
+                        }
+                        else
+                        {
+                            Logger.LogInfo($"Registered upgrade item '{upgradeName}'.");
+                        }
 
-					Upgrader upgrader = prefab.GetComponent<Upgrader>() ?? prefab.AddComponent<Upgrader>();
+                        Upgrades.RegisterUpgrade(
+                            upgradeName,
+                            item,
+                            (player, level) => UpdatePlayerMapTool(player),
+                            null
+                        );
+                    }
+                    catch (System.Exception e)
+                    {
+                        Logger.LogError(
+                            $"Exception while registering upgrade '{upgradeName}': {e}"
+                        );
+                    }
+                }
+            },
+            false
+        );
 
-					var prefabRef = Items.RegisterItem(itemAttributes);
-					if (prefabRef == null)
-					{
-						Logger.LogWarning($"Items.RegisterItem returned null for '{upgradeName}'. It may already be registered or there was an error.");
-					}
-					else
-					{
-						Logger.LogInfo($"Registered upgrade item '{upgradeName}'.");
-					}
+        Config.SettingChanged += OnConfigChanged;
+    }
 
-					Upgrades.RegisterUpgrade(upgradeName, item, null, null);
-				}
-				catch (System.Exception e)
-				{
-					Logger.LogError($"Exception while registering upgrade '{upgradeName}': {e}");
-				}
-			}
-		}, false);
+    private void InitConfig()
+    {
+        MapRequiresUpgrade = Config.Bind(
+            "Upgrade",
+            "MapRequiresUpgrade",
+            true,
+            "If true, one map upgrade is required before the map can be used"
+        );
+        MinCost = Config.Bind(
+            "Upgrade",
+            "MinCost",
+            7000f,
+            new ConfigDescription(
+                "The minimum price of a MapUpgrade in the shop",
+                new AcceptableValueRange<float>(0f, 50000f)
+            )
+        );
+        MaxCost = Config.Bind(
+            "Upgrade",
+            "MaxCost",
+            10000f,
+            new ConfigDescription(
+                "The maximum price of a MapUpgrade in the shop",
+                new AcceptableValueRange<float>(0f, 50000f)
+            )
+        );
+        MapSizeIncrease = Config.Bind(
+            "Upgrade",
+            "MapSizeIncrease",
+            0.5f,
+            new ConfigDescription(
+                "The amount that the map increases in size for every map upgrade",
+                new AcceptableValueRange<float>(0.1f, 10f)
+            )
+        );
+    }
 
-		Config.SettingChanged += OnConfigChanged;
-	}
+    private void OnConfigChanged(object sender, SettingChangedEventArgs e)
+    {
+        if (e.ChangedSetting == MapSizeIncrease || e.ChangedSetting == MapRequiresUpgrade)
+        {
+            if (PlayerAvatar.instance != null)
+            {
+                Update_MapUpgrade();
+            }
+        }
+    }
 
-	private void InitConfig()
-	{
-		MapRequiresUpgrade = Config.Bind(
-			"Upgrade",
-			"MapRequiresUpgrade",
-			true,
-			"If true, one map upgrade is required before the map can be used"
-		);
-		MinCost = Config.Bind(
-			"Upgrade",
-			"MinCost",
-			7000f,
-			new ConfigDescription(
-				"The minimum price of a MapUpgrade in the shop",
-				new AcceptableValueRange<float>(0f, 50000f)
-			)
-		);
-		MaxCost = Config.Bind(
-			"Upgrade",
-			"MaxCost",
-			10000f,
-			new ConfigDescription(
-				"The maximum price of a MapUpgrade in the shop",
-				new AcceptableValueRange<float>(0f, 50000f)
-			)
-		);
-		MapSizeIncrease = Config.Bind(
-			"Upgrade",
-			"MapSizeIncrease",
-			0.5f,
-			new ConfigDescription(
-				"The amount that the map increases in size for every map upgrade",
-				new AcceptableValueRange<float>(0.1f, 10f)
-			)
-		);
-	}
+    public static void Update_MapUpgrade()
+    {
+        if (
+            LevelGenerator.Instance.Generated
+            && !SemiFunc.MenuLevel()
+            && PlayerAvatar.instance != null
+        )
+        {
+            UpdateAllPlayersMapTool();
+        }
+    }
 
-	private void OnConfigChanged(object sender, SettingChangedEventArgs e)
-	{
-		if (e.ChangedSetting == MapSizeIncrease || e.ChangedSetting == MapRequiresUpgrade)
-		{
-			if (PlayerAvatar.instance != null)
-			{
-				Update_MapUpgrade();
-			}
-		}
-	}
+    public static void UpdateAllPlayersMapTool()
+    {
+        if (GameDirector.instance == null || GameDirector.instance.PlayerList == null)
+            return;
 
-	public static void Update_MapUpgrade()
-	{
-		if (LevelGenerator.Instance.Generated && !SemiFunc.MenuLevel() && PlayerAvatar.instance != null)
-		{
-			UpdateAllPlayersMapTool();
-		}
-	}
+        for (int x = 0; x < GameDirector.instance.PlayerList.Count; x++)
+        {
+            PlayerAvatar player = GameDirector.instance.PlayerList[x];
+            UpdatePlayerMapTool(player);
+        }
+    }
 
-	public static void UpdateAllPlayersMapTool()
-	{
-		if (GameDirector.instance == null || GameDirector.instance.PlayerList == null)
-			return;
+    public static void UpdatePlayerMapTool(PlayerAvatar player)
+    {
+        if (player == null || player.mapToolController == null)
+            return;
 
-		for (int x = 0; x < GameDirector.instance.PlayerList.Count; x++)
-		{
-			PlayerAvatar player = GameDirector.instance.PlayerList[x];
-			UpdatePlayerMapTool(player);
-		}
-	}
+        MapToolChanges mapTool = player.mapToolController.GetComponent<MapToolChanges>();
+        if (mapTool == null)
+            return;
 
-	public static void UpdatePlayerMapTool(PlayerAvatar player)
-	{
-		if (player == null || player.mapToolController == null)
-			return;
+        int upgrades = Upgrader.GetStat(player.steamID, "playerUpgradeMapUpgrade");
 
-		MapToolChanges mapTool = player.mapToolController.GetComponent<MapToolChanges>();
-		if (mapTool == null)
-			return;
+        int effectiveUpgrades = upgrades;
+        if (!MapRequiresUpgrade.Value && effectiveUpgrades == 0)
+        {
+            effectiveUpgrades = 1;
+        }
 
-		int upgrades = Upgrader.GetStat(player.steamID, "playerUpgradeMapUpgrade");
-
-		int effectiveUpgrades = upgrades;
-		if (!MapRequiresUpgrade.Value && effectiveUpgrades == 0)
-		{
-			effectiveUpgrades = 1;
-		}
-
-		mapTool.SetMapEnabled(effectiveUpgrades > 0);
-		mapTool.SetMaxZoom(MapToolChanges.DefaultSize.Value + (effectiveUpgrades - 1) * MapSizeIncrease.Value);
-	}
+        mapTool.SetMapEnabled(effectiveUpgrades > 0);
+        mapTool.SetMaxZoom(
+            MapToolChanges.DefaultSize.Value + (effectiveUpgrades - 1) * MapSizeIncrease.Value
+        );
+    }
 }
